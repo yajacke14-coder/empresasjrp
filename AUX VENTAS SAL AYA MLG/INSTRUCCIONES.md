@@ -1,108 +1,141 @@
-# Auditoría de Ingresos Recibidos para Terceros - JRP
+# Auditoría: Cruce Ventas vs SIIGO - JRP
 
-## Descripción
+## Objetivo
 
-Sistema de auditoría para revisar los ingresos recibidos para terceros de las empresas a cargo:
+Verificar que los ingresos recibidos para terceros en el **Reporte de Ventas** coincidan con los registros del auxiliar contable **SIIGO** (cuenta 28050501 "De clientes").
 
-- **AYAMONTE CONSTRUCCIONES SAS** (URB. Ayamonte, URB. Salamanca, Reserva Ayamonte, Balcones Valencia)
-- **CONSTRUCTORA SALERNO SAS** (URB. Nápoles, Conjunto Sorrento)
-- **PROMOTORA MALAGA SAS** (URB. Málaga 1, URB. Málaga 2, Portal Málaga, Portofino)
-- **PROMOTORA RESERVAS DE ANDALUCIA SAS** (Senderos Andalucía)
-- **GML GANADERIA SAS ZOMAC** (Ganadería, Proyecto Máquinas, Proyecto Prefabricados)
-- **PROMOTORA SIERRA NEVADA SAS**
+## Empresas Activas
 
-## Conceptos Clave
+| Empresa | Prefijo SIIGO | Proyectos |
+|---------|---------------|-----------|
+| **AYAMONTE CONSTRUCCIONES SAS** | AYA | URB. Ayamonte, Reserva Ayamonte, URB. Salamanca, Balcones Valencia |
+| **CONSTRUCTORA SALERNO SAS** | SAL | URB. Nápoles, Conjunto Sorrento |
+| **PROMOTORA MALAGA SAS** | MLG | URB. Málaga 1, URB. Málaga 2, Portal Málaga, Portofino, Proyecto Málaga |
 
-### Tipos de Transacción
-| Código | Significado | Tratamiento |
-|--------|-------------|-------------|
-| **CXPT** | Cuentas por pagar terceros - Valor total consignado | Ingreso recibido |
-| **CXC** | Cuentas por cobrar - Devoluciones/desistimientos | Se resta del ingreso |
-| **AP** | Abonos a proyecto | Registro contable del proyecto |
-| **SEG** | Seguimiento | Solo control, sin valor monetario |
+> Las demás empresas (GML Ganadería, Reservas Andalucía, Sierra Nevada) se agregarán conforme se obtengan sus auxiliares SIIGO.
 
-### Traslados (CXPT con INSUMO = "Traslado")
-Los traslados entre clientes **NO son ingresos nuevos**. Representan movimientos de dinero de un cliente a otro dentro del mismo proyecto. El sistema los identifica y los separa automáticamente del cálculo de ingreso real.
+## Lógica del Cálculo
 
-**Fórmula de Ingreso Neto:**
+### Reporte de Ventas
+
+| Tipo | Significado | Tratamiento |
+|------|-------------|-------------|
+| **CXPT** | Consignación del tercero | Se suma como ingreso |
+| **CXPT con INSUMO = "Traslado"** | Movimiento entre clientes | **NO suma** como ingreso nuevo |
+| **CXC** | Devolución / desistimiento | **Se resta** del ingreso |
+| **AP** | Abono a proyecto | Registro contable |
+| **SEG** | Seguimiento | Sin valor monetario |
+
 ```
-Ingreso Neto = CXPT (sin traslados) - CXC (devoluciones/desistimientos)
+Ingreso Neto Ventas = CXPT (sin traslados) - CXC
 ```
 
-## Herramientas
+**Ejemplo:** Si José Hilario aportó $100M (CXPT), se le devolvió $10M (CXC) y se trasladó $5M a otro cliente (Traslado):
+- CXPT real = $100M (los $5M de traslado NO se suman)
+- CXC = $10M
+- Ingreso Neto = $100M - $10M = **$90M**
 
-### 1. Artefacto Web (Dashboard Interactivo)
-Acceda al dashboard en el enlace proporcionado. Permite:
-- **Resumen General**: Vista consolidada de todas las empresas
-- **Por Tercero**: Búsqueda y filtrado por cliente, NIT, empresa o proyecto
-- **Por Proyecto**: Agrupación por proyecto con totales
-- **Por Empresa**: Desglose por cada empresa
-- **Alertas**: Detección automática de anomalías
-- **Detalle Cliente**: Drill-down completo de un tercero específico
-- **Cruce SIIGO**: Carga de auxiliares para comparación
+### Auxiliar SIIGO (Cuenta 28050501)
 
-### 2. Script Python (`procesador_auditoria.py`)
+- **Crédito** = pagos recibidos del tercero
+- **Débito** = devoluciones / ajustes
+- **Centro de costo** = equivale al proyecto en Ventas
 
-**Requisitos:**
+```
+Neto SIIGO = Crédito - Débito
+```
+
+### Cruce
+
+Se compara por **NIT + Empresa**:
+```
+Diferencia = Ingreso Neto Ventas - Neto SIIGO
+```
+
+| Estado | Significado |
+|--------|-------------|
+| **OK** | Diferencia ≤ $1 (coincide) |
+| **DIFERENCIA** | Los valores no coinciden, revisar |
+| **SOLO EN VENTAS** | El tercero aparece en Ventas pero no en SIIGO |
+| **SOLO EN SIIGO** | El tercero aparece en SIIGO pero no en Ventas |
+
+## Cómo Actualizar la Información
+
+### Paso 1: Actualizar el Reporte de Ventas
+
+Reemplace el archivo `REPORTE VENTAS JRP.xlsx` en la raíz del repositorio con la versión más reciente.
+
+### Paso 2: Actualizar Auxiliares SIIGO
+
+Coloque los nuevos auxiliares en esta carpeta (`AUX VENTAS SAL AYA MLG/`) con la nomenclatura:
+
+```
+{PREFIJO}_{AÑO}_auxiliar.xlsx
+```
+
+Ejemplos:
+- `AYA_2024_auxiliar.xlsx` (Ayamonte 2024)
+- `SAL_2025_auxiliar.xlsx` (Salerno 2025)
+- `MLG_2026_auxiliar.xlsx` (Málaga 2026)
+
+Si tiene un nuevo año o empresa, agregue el archivo y actualice la lista `SIIGO_FILES` en `procesador_auditoria.py`.
+
+### Paso 3: Generar el Reporte Excel
+
 ```bash
-pip install openpyxl pandas
-```
-
-**Uso básico (solo reporte de ventas):**
-```bash
+cd "AUX VENTAS SAL AYA MLG"
+pip install openpyxl pandas   # solo la primera vez
 python procesador_auditoria.py
 ```
 
-**Con auxiliar SIIGO:**
-```bash
-python procesador_auditoria.py auxiliar_siigo.xlsx
-```
-
-O coloque el archivo como `auxiliar_siigo.xlsx` en esta misma carpeta.
-
-**Salida:** Genera un archivo Excel en `reportes/auditoria_ingresos_FECHA.xlsx` con hojas:
-- `Por_Tercero` - Resumen por cada tercero con alertas
+El reporte se genera en `reportes/auditoria_ingresos_FECHA.xlsx` con hojas:
+- `Por_Tercero` - Resumen por cada tercero con inmuebles
 - `Por_Proyecto` - Resumen por proyecto
 - `Por_Empresa` - Resumen por empresa
-- `Alertas` - Solo los terceros con alertas detectadas
-- `Cruce_SIIGO` - Diferencias encontradas (si se cargó auxiliar)
+- `Cruce_SIIGO` - Comparación completa Ventas vs SIIGO
+- `Diferencias` - Solo los terceros donde no coincide
 
-## Alertas Automáticas
+### Paso 4: Actualizar el Dashboard Web
 
-| Alerta | Condición | Significado |
-|--------|-----------|-------------|
-| **ALTO DESISTIMIENTO** | CXC > 50% del CXPT real | Devoluciones excesivas |
-| **INGRESO NEGATIVO** | Ingreso neto < 0 | Más devoluciones que ingresos |
-| **ALTO TRASLADO** | Traslados > 30% del CXPT | Movimientos inusuales entre clientes |
-| **MULTI-EMPRESA** | Tercero en >1 empresa | Verificar que proyectos coincidan |
+Abra una sesión de Claude Code y pídale:
+> "Actualiza el dashboard de auditoría con los datos nuevos"
 
-## Flujo de Actualización
+Claude leerá los archivos actualizados y regenerará el artefacto web.
 
-1. Actualice el archivo `REPORTE VENTAS JRP.xlsx` en la raíz del repositorio
-2. Ejecute el script o suba la información al dashboard
-3. Si tiene auxiliares SIIGO nuevos, cárguelos en la sección "Cruce SIIGO" del dashboard o páselos como argumento al script
-4. Revise las alertas y diferencias detectadas
-5. Para detalle de un tercero específico, búsquelo en "Detalle Cliente"
+## Cómo Agregar una Nueva Empresa
+
+1. Obtenga el auxiliar SIIGO de la nueva empresa
+2. Guárdelo como `{PREFIJO}_{AÑO}_auxiliar.xlsx` en esta carpeta
+3. Edite `procesador_auditoria.py`:
+   - Agregue el nombre de la empresa a `EMPRESAS_ACTIVAS`
+   - Agregue los archivos a `SIIGO_FILES`
+4. Ejecute el script para verificar
 
 ## Estructura de Archivos
 
 ```
 empresasjrp/
-├── REPORTE VENTAS JRP.xlsx          # Archivo fuente principal
+├── REPORTE VENTAS JRP.xlsx              # Fuente principal
 └── AUX VENTAS SAL AYA MLG/
-    ├── INSTRUCCIONES.md             # Este archivo
-    ├── procesador_auditoria.py      # Script de procesamiento
-    ├── auxiliar_siigo.xlsx           # (Colocar aquí los auxiliares)
-    └── reportes/                    # Reportes generados
+    ├── INSTRUCCIONES.md                 # Este archivo
+    ├── procesador_auditoria.py          # Script de procesamiento
+    ├── AYA_2024_auxiliar.xlsx           # Auxiliar SIIGO Ayamonte 2024
+    ├── AYA_2025_auxiliar.xlsx           # Auxiliar SIIGO Ayamonte 2025
+    ├── AYA_2026_auxiliar.xlsx           # Auxiliar SIIGO Ayamonte 2026
+    ├── SAL_2024_auxiliar.xlsx           # Auxiliar SIIGO Salerno 2024
+    ├── SAL_2025_auxiliar.xlsx           # Auxiliar SIIGO Salerno 2025
+    ├── SAL_2026_auxiliar.xlsx           # Auxiliar SIIGO Salerno 2026
+    ├── MLG_2024_auxiliar.xlsx           # Auxiliar SIIGO Málaga 2024
+    ├── MLG_2025_auxiliar.xlsx           # Auxiliar SIIGO Málaga 2025
+    ├── MLG_2026_auxiliar.xlsx           # Auxiliar SIIGO Málaga 2026
+    └── reportes/                        # Reportes generados
         └── auditoria_ingresos_*.xlsx
 ```
 
 ## Datos del Reporte Actual
 
-- **61,512** registros totales
-- **1,883** terceros únicos
-- **6** empresas
+- **61,170** registros de ventas (3 empresas)
+- **17,531** registros SIIGO
+- **1,854** terceros únicos
 - **15** proyectos
-- **16,915** transacciones CXPT
-- **1,385** transacciones CXC (devoluciones)
-- **730** traslados identificados (no contados como ingreso)
+- **Cruce:** 672 OK | 986 Diferencias | 76 Solo Ventas | 164 Solo SIIGO
